@@ -7,8 +7,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Amqp0_9_1", "src\Amqp0_9_1\Amqp0_9_1.csproj", "{B0555F9D-274F-499F-AAE3-A7EB11990AEA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "console_test", "src\console_test\console_test.csproj", "{716F2ED4-CFA5-4171-8868-E52DE933897D}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
