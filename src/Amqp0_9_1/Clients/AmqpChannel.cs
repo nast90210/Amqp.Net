@@ -20,8 +20,8 @@ namespace Amqp0_9_1.Clients
         {
             var channelOpen = new ChannelOpen();
             await _amqpProcessor.WriteMethodAsync(channelOpen, _channelId, cancellationToken);
-            var channelOpenOk = await _amqpProcessor.ReadMethodAsync<ChannelOpenOk>(cancellationToken);
-            _isOpened = channelOpenOk != null;
+            await _amqpProcessor.ReadMethodAsync<ChannelOpenOk>(cancellationToken);
+            _isOpened = true;
         }
 
         public async Task<AmqpExchange> ExchangeDeclareAsync(
@@ -52,8 +52,8 @@ namespace Amqp0_9_1.Clients
         {
             var channelClose = new ChannelClose(replyCode, replyText, exceptionClassId, exceptionMethodId);
             await _amqpProcessor.WriteMethodAsync(channelClose, _channelId, cancellationToken);
-            var channelCloseOk = await _amqpProcessor.ReadMethodAsync<ChannelCloseOk>(cancellationToken);
-            return channelCloseOk != null;
+            _ = await _amqpProcessor.ReadMethodAsync<ChannelCloseOk>(cancellationToken);
+            return true;
         }
 
         public async ValueTask DisposeAsync()

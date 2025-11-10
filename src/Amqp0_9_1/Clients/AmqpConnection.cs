@@ -10,12 +10,10 @@ namespace Amqp0_9_1.Clients
     public sealed class AmqpConnection : IDisposable
     {
         private readonly InternalAmqpProcessor _amqpProcessor;
-        private bool _isOpened = false;
+        private bool _isOpened;
 
         public AmqpConnection(string host, int port)
         {
-            // GlobalExceptionHandler.Initialize(this);
-
             Debug.WriteLine($"{this}: Connecting host: {host}.");
             Debug.WriteLine($"{this}: Connecting port: {port}.");
 
@@ -48,7 +46,7 @@ namespace Amqp0_9_1.Clients
         //TODO: In future - move up to basic class
         private async Task SendProtocolHeader(CancellationToken cancellationToken)
         {
-            var protocolHeader = System.Text.Encoding.ASCII.GetBytes("AMQP\x00\x00\x09\x01");
+            var protocolHeader = "AMQP\x00\x00\x09\x01"u8.ToArray();
             await _amqpProcessor.WriteAsync(protocolHeader, cancellationToken);
         }
 
@@ -135,8 +133,8 @@ namespace Amqp0_9_1.Clients
 
         public async Task<bool> ConnectionCloseAsync(CancellationToken cancellationToken = default)
         {
-            var connectionClose =  await _amqpProcessor.ReadMethodAsync<ConnectionClose>(cancellationToken);
-            return connectionClose != null;
+            await _amqpProcessor.ReadMethodAsync<ConnectionClose>(cancellationToken);
+            return true;
         }
 
         public async Task<AmqpChannel> CreateChannelAsync(ushort channelId, CancellationToken cancellationToken = default)
