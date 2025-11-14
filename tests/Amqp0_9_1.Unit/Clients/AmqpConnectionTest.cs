@@ -98,7 +98,7 @@ public class AmqpConnectionTest
 
         var connection = CreateAmqpConnectionWithMock();
 
-        var result = await connection.ConnectionCloseAsync(cancellationToken);
+        var result = await connection.ReceiveConnectionCloseAsync(cancellationToken);
 
         Assert.True(result);
         _mockProcessor.Verify(x => x.ReadMethodAsync<ConnectionClose>(cancellationToken), Times.Once);
