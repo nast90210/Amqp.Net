@@ -1,6 +1,6 @@
 using System.Diagnostics;
-using System.Globalization;
 using Amqp0_9_1.Abstractions;
+using Amqp0_9_1.Clients.Options;
 using Amqp0_9_1.Primitives.SASL;
 using Amqp0_9_1.Methods.Connection;
 using Amqp0_9_1.Methods.Connection.Properties;
@@ -10,15 +10,37 @@ namespace Amqp0_9_1.Clients
 {
     public sealed class AmqpConnection : IDisposable
     {
+        private readonly AmqpConnectionOptions _options;
         private readonly IAmqpProcessor _amqpProcessor;
         private bool _isOpened;
 
-        public AmqpConnection(string host, int port)
+        public AmqpConnection(string host, int port, AmqpConnectionOptions? options = null)
         {
-            Debug.WriteLine($"{this}: Connecting host: {host}.");
-            Debug.WriteLine($"{this}: Connecting port: {port}.");
+            try
+            {
+                ValidateInitiateParameters(host, port);
 
-            _amqpProcessor = new GeneralAmqpProcessor(host, port);
+                Debug.WriteLine($"{this}: Connecting host: {host}.");
+                Debug.WriteLine($"{this}: Connecting port: {port}.");
+
+                _options = options ?? new AmqpConnectionOptions();
+                _amqpProcessor = new GeneralAmqpProcessor(host, port);
+            }
+            catch
+            {
+                _isOpened = false;
+                Dispose();
+                throw;
+            }
+        }
+
+        private static void ValidateInitiateParameters(string host, int port)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+                throw new ArgumentException("Host cannot be empty", nameof(host));
+
+            if (port is <= 0 or > 65535)
+                throw new ArgumentOutOfRangeException(nameof(port), "Port must be between 1 and 65535");
         }
 
         public async Task ConnectAsync(
@@ -27,19 +49,47 @@ namespace Amqp0_9_1.Clients
             string virtualHost = "/",
             CancellationToken cancellationToken = default)
         {
-            await _amqpProcessor.StartProcessingAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                ValidateConnectionParameters(username, password, virtualHost);
 
-            await ProcessHandshake(username, password, virtualHost, cancellationToken);
+                await _amqpProcessor.StartProcessingAsync(cancellationToken).ConfigureAwait(false);
+
+                await ProcessHandshake(username, password, virtualHost, cancellationToken);
+            }
+            catch
+            {
+                _isOpened = false;
+                await DisposeAsync();
+                throw;
+            }
         }
 
-        private async Task ProcessHandshake(string username, string password, string virtualHost, CancellationToken cancellationToken)
+        private static void ValidateConnectionParameters(
+            string username,
+            string password,
+            string virtualHost)
+        {
+            if (string.IsNullOrWhiteSpace(username))
+                throw new ArgumentException("Username cannot be empty", nameof(username));
+
+            if (string.IsNullOrWhiteSpace(password))
+                throw new ArgumentException("Password cannot be empty", nameof(password));
+
+            if (string.IsNullOrWhiteSpace(virtualHost))
+                throw new ArgumentException("Virtual host cannot be empty", nameof(virtualHost));
+        }
+
+        private async Task ProcessHandshake(string username, string password, string virtualHost,
+            CancellationToken cancellationToken)
         {
             await SendProtocolHeader(cancellationToken);
-            _ = await ReceiveConnectionStartAsync(cancellationToken);
+            await ReceiveConnectionStartAsync(cancellationToken);
             await SendConnectionStartOkAsync(username, password, cancellationToken);
             // //FIXME: Currently no ConnectionSecurity
-            var tuneInfo = await ReceiveConnectionTuneAsync(cancellationToken);
-            await SendConnectionTuneOkAsync(tuneInfo.ChannelMax, tuneInfo.FrameMax, tuneInfo.Heartbeat, cancellationToken);
+            await ReceiveConnectionTuneAsync(cancellationToken);
+            await SendConnectionTuneOkAsync(_options.ChannelMax, _options.FrameMax, _options.Heartbeat,
+                cancellationToken);
             await SendConnectionOpenAsync(virtualHost, cancellationToken);
             _isOpened = await ReceiveConnectionOpenOkAsync(cancellationToken);
         }
@@ -51,9 +101,10 @@ namespace Amqp0_9_1.Clients
             await _amqpProcessor.WriteAsync(protocolHeader, cancellationToken);
         }
 
-        private async Task<ConnectionStart> ReceiveConnectionStartAsync(CancellationToken cancellationToken = default)
+        private async Task ReceiveConnectionStartAsync(CancellationToken cancellationToken = default)
         {
-            var connectionStart = await _amqpProcessor.ReadMethodAsync<ConnectionStart>(cancellationToken).ConfigureAwait(false);
+            var connectionStart = await _amqpProcessor.ReadMethodAsync<ConnectionStart>(cancellationToken)
+                .ConfigureAwait(false);
 
             Debug.WriteLine($"{this}: Amqp version: {connectionStart.VersionMajor}.{connectionStart.VersionMinor}.");
             Debug.WriteLine($"{this}: Mechanisms: {connectionStart.Mechanisms}.");
@@ -67,16 +118,16 @@ namespace Amqp0_9_1.Clients
                     {
                         Debug.WriteLine($"{this}: {subProp.Key}: {subProp.Value}.");
                     }
+
                     continue;
                 }
 
                 Debug.WriteLine($"{this}: {prop.Key}: {prop.Value}.");
             }
-
-            return connectionStart;
         }
 
-        private async Task SendConnectionStartOkAsync(string username, string password, CancellationToken cancellationToken)
+        private async Task SendConnectionStartOkAsync(string username, string password,
+            CancellationToken cancellationToken)
         {
             var clientProperties = new ConnectionStartOkProperties();
 
@@ -87,23 +138,23 @@ namespace Amqp0_9_1.Clients
                 clientProperties,
                 SaslMechanism.PLAIN,
                 saslPlainResponse,
-                CultureInfo.CurrentCulture.Name);
+                _options.Locale);
 
             await _amqpProcessor.WriteMethodAsync(connectionStartOk, cancellationToken: cancellationToken);
         }
 
-        private async Task<ConnectionTune> ReceiveConnectionTuneAsync(CancellationToken cancellationToken)
+        private async Task ReceiveConnectionTuneAsync(CancellationToken cancellationToken)
         {
-            var connectionTune = await _amqpProcessor.ReadMethodAsync<ConnectionTune>(cancellationToken).ConfigureAwait(false);
+            var connectionTune = await _amqpProcessor.ReadMethodAsync<ConnectionTune>(cancellationToken)
+                .ConfigureAwait(false);
 
             Debug.WriteLine($"{this}: ChannelMax {connectionTune.ChannelMax}.");
             Debug.WriteLine($"{this}: FrameMax {connectionTune.FrameMax}.");
             Debug.WriteLine($"{this}: Heartbeat {connectionTune.Heartbeat}.");
-
-            return connectionTune;
         }
 
-        private async Task SendConnectionTuneOkAsync(ushort channelMax, uint frameMax, ushort heartbeat, CancellationToken cancellationToken)
+        private async Task SendConnectionTuneOkAsync(ushort channelMax, uint frameMax, ushort heartbeat,
+            CancellationToken cancellationToken)
         {
             var connectionTuneOk = new ConnectionTuneOk(channelMax, frameMax, heartbeat);
             await _amqpProcessor.WriteMethodAsync(connectionTuneOk, cancellationToken: cancellationToken);
@@ -129,16 +180,18 @@ namespace Amqp0_9_1.Clients
             CancellationToken cancellationToken = default)
         {
             var connectionClose = new ConnectionClose(replyCode, replyText, exceptionClassId, exceptionMethodId);
-            await _amqpProcessor.WriteMethodAsync(connectionClose, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await _amqpProcessor.WriteMethodAsync(connectionClose, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        public async Task<bool> ConnectionCloseAsync(CancellationToken cancellationToken = default)
+        public async Task<bool> ReceiveConnectionCloseAsync(CancellationToken cancellationToken = default)
         {
             await _amqpProcessor.ReadMethodAsync<ConnectionClose>(cancellationToken);
             return true;
         }
 
-        public async Task<AmqpChannel> CreateChannelAsync(ushort channelId, CancellationToken cancellationToken = default)
+        public async Task<AmqpChannel> CreateChannelAsync(ushort channelId,
+            CancellationToken cancellationToken = default)
         {
             var channel = new AmqpChannel(channelId, _amqpProcessor);
             await channel.Create(cancellationToken);
